@@ -37,7 +37,11 @@ team_t team = {
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
 
-/* rounds up to the nearest multiple of ALIGNMENT */
+/* rounds up to the nearest multiple of ALIGNMENT
+ * 8바이트 단위로 정렬하기 위한 올림 과정
+ * (size) + (ALIGNMENT - 1) = (size) + 7
+ * & ~0x7은 이진법으로 끝 세자리 111을 000으로 만드는 동작
+*/
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
