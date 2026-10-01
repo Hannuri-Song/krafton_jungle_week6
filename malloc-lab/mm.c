@@ -104,12 +104,27 @@ static char *heap_listp = NULL; // 힙의 블록 순회의 시작 주소를 기�
 
 int mm_init(void)
 {
-    // 초기 설정하기 패딩 4 - 프롤로그 헤더 4 - 프롤로그 푸터 4 - 에필로그 헤더 4
+    /*
+     * 초기 메모리 설정하기
+     * 패딩 4 - 프롤로그 헤더 4 - 프롤로그 푸터 4 - 에필로그 헤더 4
+     */
     heap_listp = mem_sbrk(4 * WSIZE);
     if (heap_listp == (void *)-1){
         return -1;
     }
-            
+
+    PUT(heap_listp, 0); // 패딩 설정
+    PUT(heap_listp + WSIZE, PACK(DSIZE, 1)); // 프롤로그 헤더 설정
+    PUT(heap_listp + DSIZE, PACK(DSIZE, 1)); // 프롤로그 풋터 설정
+    PUT(heap_listp + (3 * WSIZE), PACK(0, 1)); // 에필로그 헤더 설정
+
+    heap_listp += DSIZE; // bp로 포인터 이동
+
+    /* 여기까지의 흐름으로 초기 골격은 만들었지만, 할당할 free block은 없다.
+     * 고로 extend_heap을 써서 free block을 만들어야 한다.
+    */
+   
+
     return 0;
 }
 
