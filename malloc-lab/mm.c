@@ -24,11 +24,11 @@
  ********************************************************/
 team_t team = {
     /* Team name */
-    "ateam",
+    "Team 5",
     /* First member's full name */
-    "Harry Bovik",
+    "Antonio",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "Antonio@jungle.edu",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -180,7 +180,7 @@ static void *extend_heap(size_t words)
 
     return bp;
     */
-    coalesce(bp);
+    bp = coalesce(bp);
     return bp;
 }
 
@@ -233,29 +233,37 @@ void *mm_malloc(size_t size)
 /*
  * mm_free - Freeing a block does nothing.
  */
-void mm_free(void *ptr)
+void mm_free(void *bp)
 {
+    if (bp == NULL){
+        return;
+    }
+    size_t size = GET_SIZE(HDRP(bp));
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+
+    coalesce(bp);
 }
 
-/*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- */
-// void *mm_realloc(void *ptr, size_t size)
-// {
-//     void *oldptr = ptr;
-//     void *newptr;
-//     size_t copySize;
+ /*
+  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+  */
+void *mm_realloc(void *ptr, size_t size)
+{
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
 
-//     newptr = mm_malloc(size);
-//     if (newptr == NULL)
-//         return NULL;
-//     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-//     if (size < copySize)
-//         copySize = size;
-//     memcpy(newptr, oldptr, copySize);
-//     mm_free(oldptr);
-//     return newptr;
-// }
+    newptr = mm_malloc(size);
+    if (newptr == NULL)
+        return NULL;
+    copySize = GET_SIZE(HDRP(oldptr)) - DSIZE;
+    if (size < copySize)
+        copySize = size;
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+}
 
 static void *coalesce(void *bp) // 인접한 free block들 병합하기
 {
@@ -317,7 +325,7 @@ static void place(char *bp, size_t size)
     size_t cur_size;
     cur_size = GET_SIZE(HDRP(bp));
 
-    if ((cur_size - size) >= (2 * DSIZE)){
+    if ((cur_size - size) >= (2 * DSIZE)){ // 헤더와 풋터 총 8바이트 + payload 최소 8바이트
         PUT(HDRP(bp), PACK(size, 1));
         PUT(FTRP(bp), PACK(size, 1));
         PUT(HDRP(NEXT_BLKP(bp)), PACK((cur_size - size), 0));
