@@ -101,6 +101,7 @@ team_t team = {
  * 경계 처리를 단순하게 만드는 sentinel의 역할 */
 
 static char *heap_listp = NULL; // 힙의 블록 순회의 시작 주소를 기억하기 위한 포인터
+static char *next_freep = NULL; // find_fit()을 next_fit 방식으로 구현하기 위해 마지막 탐색 위치 기억할 포인터
 
 static void *extend_heap(size_t words); // words = CHUNKSIZE / WSIZE = WORD의 개수만큼 확장한다는 의미
 static void *coalesce(void *bp);
@@ -131,6 +132,7 @@ int mm_init(void)
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL){
         return -1;
     }
+    next_freep = NEXT_BLKP(heap_listp); // 힙 영역 확장 후 최초의 free block으로 이동
 
     return 0;
 }
@@ -274,7 +276,7 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
     prev_alloc = GET_ALLOC(HDRP(PREV_BLKP(bp)));
     next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 
-    size = GET_SIZE(HDRP(bp));
+    size = GET_SIZE(HDRP(bp)); 
 
     if (prev_alloc == 1 && next_alloc == 1){
         return bp;
@@ -283,6 +285,10 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
+        
+        if (bp <= next_freep && next_freep < NEXT_BLKP(bp)) {
+            next_freep = bp;
+        }
 
         return bp;
     }
@@ -291,6 +297,10 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
         bp = PREV_BLKP(bp);
+
+        if (bp <= next_freep && next_freep < NEXT_BLKP(bp)){
+            next_freep = bp;
+        }
 
         return bp;
     }
@@ -302,22 +312,54 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
 
+        if (bp <= next_freep && next_freep < NEXT_BLKP(bp)){
+            next_freep = bp;
+        }
         return bp;
     }
 }
 
-static void *find_fit(size_t size) // first_fit 방식
+// static void *find_fit(size_t size) // first_fit 방식
+// {
+//     char *bp;
+//     bp = NEXT_BLKP(heap_listp);
+
+//     while (GET_SIZE(HDRP(bp)) != 0){
+//         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
+//             return bp;
+//         }
+//         bp = NEXT_BLKP(bp);
+//     }
+//     return NULL;
+// }
+
+static void *find_fit(size_t size) // next_fit 방식
 {
     char *bp;
-    bp = NEXT_BLKP(heap_listp);
+    char *last_searchp;
+
+    last_searchp = next_freep;
+    bp = next_freep;
 
     while (GET_SIZE(HDRP(bp)) != 0){
         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
+            // next_freep = NEXT_BLKP(bp);
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
+
+    bp = NEXT_BLKP(heap_listp);
+    while (bp != last_searchp){
+        if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
+            // next_freep = NEXT_BLKP(bp);
+            return bp;
+        }
+        bp = NEXT_BLKP(bp);
+    }
+    
     return NULL;
+
 }
 
 static void place(char *bp, size_t size)
@@ -335,4 +377,6 @@ static void place(char *bp, size_t size)
         PUT(HDRP(bp), PACK(cur_size, 1));
         PUT(FTRP(bp), PACK(cur_size, 1));
     }
+
+    next_freep = NEXT_BLKP(bp);
 }
