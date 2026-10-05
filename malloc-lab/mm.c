@@ -132,7 +132,8 @@ int mm_init(void)
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL){
         return -1;
     }
-    next_freep = NEXT_BLKP(heap_listp); // 힙 영역 확장 후 최초의 free block으로 이동
+    next_freep = NEXT_BLKP(heap_listp);
+    // 힙 영역 확장 후 최초의 free block으로 이동
 
     return 0;
 }
@@ -249,22 +250,74 @@ void mm_free(void *bp)
 
  /*
   * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+  * 기본 realloc()의 문제점: 기존의 free block을 사용할 수 있는 상황에서도 무조건
+  * 새 블록을 만들어서 할당한다.
+  * 순서 상 새 block을 만들고 기존 block을 free 하기 때문에 util이 안좋음
+  * 궁극적인 목표는 "기존 block을 쓸 수 있으면 그거부터 쓰자"
   */
-void *mm_realloc(void *ptr, size_t size)
+void *mm_realloc(void *bp, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    // void *oldbp = bp; // 기존의 bp를 저장하는 변수
+    void *newbp; // 새로 할당받은 bp
+    size_t new_size;
+    size_t cur_size;
+    size_t copy_size;
 
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
+    new_size = ALIGN(size + DSIZE);
+    cur_size = GET_SIZE(HDRP(bp));
+
+
+    if (cur_size >= new_size){
+        if ((cur_size - new_size) >= (2 * DSIZE)){
+            PUT(HDRP(bp), PACK(new_size, 1));
+            PUT(FTRP(bp), PACK(new_size, 1));
+            PUT(HDRP(NEXT_BLKP(bp)), PACK((cur_size - new_size), 0));
+            PUT(FTRP(NEXT_BLKP(bp)), PACK((cur_size - new_size), 0));
+
+            next_freep = coalesce(NEXT_BLKP(bp));
+        }
+
+    else{
+        PUT(HDRP(bp), PACK(cur_size, 1));
+        PUT(FTRP(bp), PACK(cur_size, 1));
+    }
+
+    return bp;
+    }
+
+    if (GET_ALLOC(HDRP(NEXT_BLKP(bp))) == 0){
+        size_t sum_size;
+
+        sum_size = cur_size + GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        if (sum_size >= new_size){
+            if ((sum_size - new_size) >= (2 * DSIZE)){
+                PUT(HDRP(bp), PACK(new_size, 1));
+                PUT(FTRP(bp), PACK(new_size, 1));
+
+                PUT(HDRP(NEXT_BLKP(bp)), PACK((sum_size - new_size), 0));
+                PUT(FTRP(NEXT_BLKP(bp)), PACK((sum_size - new_size), 0));
+
+                next_freep = coalesce(NEXT_BLKP(bp));
+            }
+            else{
+            PUT(HDRP(bp), PACK(sum_size, 1));
+            PUT(FTRP(bp), PACK(sum_size, 1));
+
+            next_freep = NEXT_BLKP(bp);
+            }
+            return bp;
+        }
+    }
+
+    newbp = mm_malloc(size);
+    if (newbp == NULL)
         return NULL;
-    copySize = GET_SIZE(HDRP(oldptr)) - DSIZE;
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    copy_size = GET_SIZE(HDRP(bp)) - DSIZE;
+    if (size < copy_size)
+        copy_size = size;
+    memcpy(newbp, bp, copy_size);
+    mm_free(bp);
+    return newbp;
 }
 
 static void *coalesce(void *bp) // 인접한 free block들 병합하기
@@ -286,6 +339,7 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
         
+        // 병합 후 next_frep의 위치를 bp로 옮기는 역할
         if (bp <= next_freep && next_freep < NEXT_BLKP(bp)) {
             next_freep = bp;
         }
@@ -339,20 +393,24 @@ static void *find_fit(size_t size) // next_fit 방식
     char *last_searchp;
 
     last_searchp = next_freep;
-    bp = next_freep;
+    /*마지막으로 탐색한 위치 기억하기 위해서,
+     * 에필로그까지 탐색하고 처음부터 이 위치까지 다 탐색하려고*/
 
+    bp = next_freep;
+    // next_freep = NEXT_BLKP(heap_listp)고 이게 프롤로그 블록 이후 첫번째 실제 block
+
+    // 에필로그 헤더의 크기는 0이니까 에필로그 헤더 전까지 순회
     while (GET_SIZE(HDRP(bp)) != 0){
         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
-            // next_freep = NEXT_BLKP(bp);
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
 
+    // 끝까지 다 돌고 처음부터 last_searchp까지 순회
     bp = NEXT_BLKP(heap_listp);
-    while (bp != last_searchp){
+    while (bp != last_searchp){ 
         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
-            // next_freep = NEXT_BLKP(bp);
             return bp;
         }
         bp = NEXT_BLKP(bp);
@@ -367,7 +425,11 @@ static void place(char *bp, size_t size)
     size_t cur_size;
     cur_size = GET_SIZE(HDRP(bp));
 
-    if ((cur_size - size) >= (2 * DSIZE)){ // 헤더와 풋터 총 8바이트 + payload 최소 8바이트
+    /* free block을 쪼갠 뒤 남는 공간이 최소의 크기를 갖는지 검사하는 조건
+     * 헤더 4바이트, 풋터 4바이트를 제외하면 payload는 최소 8바이트를 가져야
+     * 8의 배수인 16을 만족한다. 4바이트면 총 12바이트라 8의 배수로 정렬이 안됨
+     */
+    if ((cur_size - size) >= (2 * DSIZE)){
         PUT(HDRP(bp), PACK(size, 1));
         PUT(FTRP(bp), PACK(size, 1));
         PUT(HDRP(NEXT_BLKP(bp)), PACK((cur_size - size), 0));
@@ -378,5 +440,9 @@ static void place(char *bp, size_t size)
         PUT(FTRP(bp), PACK(cur_size, 1));
     }
 
+    /* 이 과정이 find_fit에 있었을 경우, place()하면서 split하면서
+     * find_fit 시점의 bp와 place() 이후의 bp 위치가 달라질 수 있다.
+     * 그렇기 때문에 place가 split을 한 후 next_freep의 위치를 옮겨준다.
+     */
     next_freep = NEXT_BLKP(bp);
 }
