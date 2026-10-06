@@ -54,7 +54,7 @@ team_t team = {
 #define ALIGNMENT 8
 #define WSIZE 4 // header와 footer를 만들기 위한 단위 크기 정의
 #define DSIZE 8 // 정렬 단위와 같은 크기
-#define CHUNKSIZE (1 << 12) //할당기가 힙을 확장하는데 사용하는 기본 크기 단위 설정 (2^12 = 4096바이트)
+#define CHUNKSIZE (1 << 10) //할당기가 힙을 확장하는데 사용하는 기본 크기 단위 설정 (2^12 = 4096바이트)
 
 
 /* rounds up to the nearest multiple of ALIGNMENT
@@ -263,33 +263,51 @@ void *mm_realloc(void *bp, size_t size)
     size_t cur_size;
     size_t copy_size;
 
-    new_size = ALIGN(size + DSIZE);
+
+    // case 0. 특수 예외처리 bp가 NULL이거나 size가 0인 경우
+    if (bp == NULL){
+        return mm_malloc(size);
+    }
+    if (size == 0){
+        mm_free(bp);
+        return NULL;
+    }
+
+
+    new_size = ALIGN(size + DSIZE); //헤더 풋터 포함 8배수 정렬
     cur_size = GET_SIZE(HDRP(bp));
 
-
+    // case 1. 현재 블록을 그대로 쓸 수 있는 경우
     if (cur_size >= new_size){
+        // 스플릿 과정. 헤더+풋터+페이로드 해서 16바이트 이상 남으면 자른다.
         if ((cur_size - new_size) >= (2 * DSIZE)){
             PUT(HDRP(bp), PACK(new_size, 1));
             PUT(FTRP(bp), PACK(new_size, 1));
             PUT(HDRP(NEXT_BLKP(bp)), PACK((cur_size - new_size), 0));
             PUT(FTRP(NEXT_BLKP(bp)), PACK((cur_size - new_size), 0));
 
-            next_freep = coalesce(NEXT_BLKP(bp));
+            // 기존의 다음 블록이 free면 지금 split한 블록이랑 병합
+            coalesce(NEXT_BLKP(bp));
         }
 
-    else{
-        PUT(HDRP(bp), PACK(cur_size, 1));
-        PUT(FTRP(bp), PACK(cur_size, 1));
-    }
+        else{
+            PUT(HDRP(bp), PACK(cur_size, 1));
+            PUT(FTRP(bp), PACK(cur_size, 1));
+        }
 
     return bp;
     }
 
+    // case 2. next_block이 free block인 경우
     if (GET_ALLOC(HDRP(NEXT_BLKP(bp))) == 0){
         size_t sum_size;
 
         sum_size = cur_size + GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        // 현재 블록과 다음 블록을 합친 크기가 요구 크기보다 큰지 검사
         if (sum_size >= new_size){
+            int next_was_freep = (next_freep == NEXT_BLKP(bp));
+            // next-fit을 위한 변수. free block인 다음 블록을 합치는 과정에서
+            // next_freep의 위치도 바꿔줘야 하기 때문
             if ((sum_size - new_size) >= (2 * DSIZE)){
                 PUT(HDRP(bp), PACK(new_size, 1));
                 PUT(FTRP(bp), PACK(new_size, 1));
@@ -297,18 +315,53 @@ void *mm_realloc(void *bp, size_t size)
                 PUT(HDRP(NEXT_BLKP(bp)), PACK((sum_size - new_size), 0));
                 PUT(FTRP(NEXT_BLKP(bp)), PACK((sum_size - new_size), 0));
 
-                next_freep = coalesce(NEXT_BLKP(bp));
+                // 스플릿 이후 새롭게 생긴 free block과 그 다음 block도 free block인
+                // 케이스를 고려해서 coalescing 함
+                coalesce(NEXT_BLKP(bp));
+                
+                // 스플릿 했으면 새롭게 생긴 블록 다음 블록이 다시 free block이므로
+                // 다음 블록으로 next_freep를 옮겨 준다.
+                if (next_was_freep){
+                    next_freep = NEXT_BLKP(bp);
+                }
+
             }
-            else{
+            else {
             PUT(HDRP(bp), PACK(sum_size, 1));
             PUT(FTRP(bp), PACK(sum_size, 1));
+            
+                if (next_was_freep){
+                    next_freep = NEXT_BLKP(bp);
+                }
 
-            next_freep = NEXT_BLKP(bp);
             }
             return bp;
         }
     }
 
+    // case 3. 현재 블록이 heap의 마지막 블록인가?
+    if (GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0){
+        newbp = extend_heap((new_size - cur_size) / WSIZE);
+
+        // 힙 확장에 성공했을 경우에만 진행
+        if (newbp !=NULL){
+
+            // next fit 동작시키기 위한 변수
+            // newbp가 bp와 합쳐진 후 next_freep가 allocated block 내부에 남지 않도록
+            int next_was_freep = (next_freep == newbp);
+            new_size = cur_size + GET_SIZE(HDRP(newbp));
+
+            PUT(HDRP(bp), PACK(new_size, 1));
+            PUT(FTRP(bp), PACK(new_size, 1));
+
+            if (next_was_freep){
+                next_freep = NEXT_BLKP(bp);
+            }
+            return bp;
+        }
+    }
+    
+    // case 4. 현재 블록 재활용 불가. 새 블록 할당 후 데이터 복사
     newbp = mm_malloc(size);
     if (newbp == NULL)
         return NULL;
