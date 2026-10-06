@@ -339,7 +339,7 @@ void *mm_realloc(void *bp, size_t size)
         }
     }
 
-    // case 3. 현재 블록이 heap의 마지막 블록인가?
+    // case 5. 현재 블록이 heap의 마지막 블록인가?
     if (GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0){
         newbp = extend_heap((new_size - cur_size) / WSIZE);
 
@@ -359,9 +359,97 @@ void *mm_realloc(void *bp, size_t size)
             }
             return bp;
         }
+    }   
+
+    // // case 3. prev_block, next_block이 free block인 경우
+    // if (GET_ALLOC(HDRP(NEXT_BLKP(bp))) == 0 && GET_ALLOC(HDRP(PREV_BLKP(bp))) == 0){
+    //     size_t sum_size;
+    //     size_t prev_size = GET_SIZE(HDRP(PREV_BLKP(bp)));
+    //     size_t next_size = GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    //     void *old_prevp;
+    //     void *old_nextp;
+
+    //     sum_size = prev_size + cur_size + next_size;
+
+    //     if (sum_size >= new_size && (cur_size + prev_size) < new_size){
+    //         old_prevp = PREV_BLKP(bp);
+    //         old_nextp = NEXT_BLKP(bp);
+    //         copy_size = cur_size - DSIZE;
+
+    //         int prev_was_freep = (next_freep == old_prevp);
+    //         int next_was_freep = (next_freep == old_nextp);
+
+    //         memmove(old_prevp, bp, copy_size);
+
+    //         if ((sum_size - new_size) >= (2 * DSIZE)){
+    //             PUT(HDRP(old_prevp), PACK(new_size, 1));
+    //             PUT(FTRP(old_prevp), PACK(new_size, 1));
+
+    //             PUT(HDRP(NEXT_BLKP(old_prevp)), PACK((sum_size - new_size), 0));
+    //             PUT(FTRP(NEXT_BLKP(old_prevp)), PACK((sum_size - new_size), 0));
+
+    //             coalesce(NEXT_BLKP(old_prevp));
+
+    //             if (prev_was_freep || next_was_freep){
+    //                 next_freep = NEXT_BLKP(old_prevp);
+    //             }
+    //         }
+
+    //         else{
+    //             PUT(HDRP(old_prevp), PACK(sum_size, 1));
+    //             PUT(FTRP(old_prevp), PACK(sum_size, 1));
+
+    //             if (prev_was_freep || next_was_freep){
+    //                 next_freep = NEXT_BLKP(old_prevp);
+    //             }
+    //         }
+
+    //         return old_prevp;
+    //     }
+    // } 
+
+    // case 4. prev_block이 free block인 경우
+    if (GET_ALLOC(HDRP(PREV_BLKP(bp))) == 0){
+        size_t sum_size;
+        void *old_prevp;
+        sum_size = cur_size + GET_SIZE(HDRP(PREV_BLKP(bp)));
+
+        if (sum_size >= new_size){
+            old_prevp = PREV_BLKP(bp);
+            copy_size = cur_size - DSIZE;
+
+            int prev_was_freep = (next_freep == old_prevp);
+
+            memmove(old_prevp, bp, copy_size);
+
+            if ((sum_size - new_size) >= (2 * DSIZE)){
+                PUT(HDRP(old_prevp), PACK(new_size, 1));
+                PUT(FTRP(old_prevp), PACK(new_size, 1));
+
+                PUT(HDRP(NEXT_BLKP(old_prevp)), PACK((sum_size - new_size), 0));
+                PUT(FTRP(NEXT_BLKP(old_prevp)), PACK((sum_size - new_size), 0));
+
+                coalesce(NEXT_BLKP(old_prevp));
+
+                if (prev_was_freep){
+                    next_freep = NEXT_BLKP(old_prevp);
+                }
+            }
+
+            else{
+                PUT(HDRP(old_prevp), PACK(sum_size, 1));
+                PUT(FTRP(old_prevp), PACK(sum_size, 1));
+            
+                if (prev_was_freep){
+                    next_freep = NEXT_BLKP(old_prevp);
+                }
+            }
+
+            return old_prevp;
+        }
     }
-    
-    // case 4. 현재 블록 재활용 불가. 새 블록 할당 후 데이터 복사
+
+    // case 6. 현재 블록 재활용 불가. 새 블록 할당 후 데이터 복사
     newbp = mm_malloc(size);
     if (newbp == NULL)
         return NULL;
