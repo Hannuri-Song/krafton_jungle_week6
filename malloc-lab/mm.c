@@ -339,7 +339,7 @@ void *mm_realloc(void *bp, size_t size)
         }
     }
 
-    // case 5. 현재 블록이 heap의 마지막 블록인가?
+    // case 3. 현재 블록이 heap의 마지막 블록인가?
     if (GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0){
         newbp = extend_heap((new_size - cur_size) / WSIZE);
 
@@ -361,7 +361,7 @@ void *mm_realloc(void *bp, size_t size)
         }
     }   
 
-    // // case 3. prev_block, next_block이 free block인 경우
+    // // case NULL. prev_block, next_block이 free block인 경우
     // if (GET_ALLOC(HDRP(NEXT_BLKP(bp))) == 0 && GET_ALLOC(HDRP(PREV_BLKP(bp))) == 0){
     //     size_t sum_size;
     //     size_t prev_size = GET_SIZE(HDRP(PREV_BLKP(bp)));
@@ -449,7 +449,7 @@ void *mm_realloc(void *bp, size_t size)
         }
     }
 
-    // case 6. 현재 블록 재활용 불가. 새 블록 할당 후 데이터 복사
+    // case 5. 현재 블록 재활용 불가. 새 블록 할당 후 데이터 복사
     newbp = mm_malloc(size);
     if (newbp == NULL)
         return NULL;
@@ -528,37 +528,131 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
 //     return NULL;
 // }
 
-static void *find_fit(size_t size) // next_fit 방식
+// static void *find_fit(size_t size) // next_fit 방식
+// {
+//     char *bp;
+//     char *last_searchp;
+
+//     last_searchp = next_freep;
+//     /*마지막으로 탐색한 위치 기억하기 위해서,
+//      * 에필로그까지 탐색하고 처음부터 이 위치까지 다 탐색하려고*/
+
+//     bp = next_freep;
+//     // next_freep = NEXT_BLKP(heap_listp)고 이게 프롤로그 블록 이후 첫번째 실제 block
+
+//     // 에필로그 헤더의 크기는 0이니까 에필로그 헤더 전까지 순회
+//     while (GET_SIZE(HDRP(bp)) != 0){
+//         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
+//             return bp;
+//         }
+//         bp = NEXT_BLKP(bp);
+//     }
+
+//     // 끝까지 다 돌고 처음부터 last_searchp까지 순회
+//     bp = NEXT_BLKP(heap_listp);
+//     while (bp != last_searchp){ 
+//         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
+//             return bp;
+//         }
+//         bp = NEXT_BLKP(bp);
+//     }
+    
+//     return NULL;
+
+// }
+
+// static void *find_fit(size_t size) // best_fit 방식
+// {
+//     char *bp;
+//     char *best_bp;
+//     size_t cur_size;
+//     int fit_count = 0; // bounded_best-fit
+
+//     bp = NEXT_BLKP(heap_listp);
+//     // 첫 번째 가용 블록의 bp
+
+//     best_bp = NULL;
+
+//     // 에필로그 헤더의 크기는 0이니까 에필로그 헤더 전까지 순회
+//     while (GET_SIZE(HDRP(bp)) != 0){
+//         cur_size = GET_SIZE(HDRP(bp));
+//         if (GET_ALLOC(HDRP(bp)) == 0 && cur_size >= size){
+//             fit_count++;
+
+//             if (best_bp == NULL){
+//                 best_bp = bp;
+//             }
+
+//             else if (cur_size < GET_SIZE(HDRP(best_bp))){
+//                 best_bp = bp;
+//             }
+
+//             if (cur_size == size){ //맞는 블록을 찾으면 전부 순회하지 말고 바로 반환
+//                 return bp;
+//             }
+
+//             if (fit_count == 1){ // 이게 1이면 사실상 first-fit과 다를게 없음
+//                 return best_bp;
+//             }
+//         }
+//         bp = NEXT_BLKP(bp);
+//     }
+
+//     return best_bp;
+// }
+
+static void *find_fit(size_t size) // hybrid_fit (next_fit + first_fit)
 {
     char *bp;
     char *last_searchp;
+    char *first_unchecked; // first_fit에서 순회가 끝난 다음 블록
+    size_t cur_size;
+    int block_count = 0; // first_fit에서 순회할 블록의 갯수
 
-    last_searchp = next_freep;
-    /*마지막으로 탐색한 위치 기억하기 위해서,
-     * 에필로그까지 탐색하고 처음부터 이 위치까지 다 탐색하려고*/
-
-    bp = next_freep;
-    // next_freep = NEXT_BLKP(heap_listp)고 이게 프롤로그 블록 이후 첫번째 실제 block
+    bp = NEXT_BLKP(heap_listp); // 첫 번째 가용 블록의 bp
 
     // 에필로그 헤더의 크기는 0이니까 에필로그 헤더 전까지 순회
+    while (GET_SIZE(HDRP(bp)) != 0){ 
+        cur_size = GET_SIZE(HDRP(bp));
+        if (GET_ALLOC(HDRP(bp)) == 0 && cur_size >= size){
+            return bp;
+        }
+        block_count ++;
+
+        if (block_count == 3){
+            first_unchecked = NEXT_BLKP(bp);
+            break;
+        }
+
+        bp = NEXT_BLKP(bp);
+    }
+
+    if (block_count < 3){
+        return NULL;
+    }
+
+    last_searchp = next_freep;
+    bp = next_freep;
+
     while (GET_SIZE(HDRP(bp)) != 0){
         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
+    if (next_freep < first_unchecked){
+        return NULL;
+    }
 
-    // 끝까지 다 돌고 처음부터 last_searchp까지 순회
-    bp = NEXT_BLKP(heap_listp);
-    while (bp != last_searchp){ 
+    bp = first_unchecked;
+    
+    while (bp != last_searchp){
         if (GET_ALLOC(HDRP(bp)) == 0 && GET_SIZE(HDRP(bp)) >= size){
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
-    
     return NULL;
-
 }
 
 static void place(char *bp, size_t size)
