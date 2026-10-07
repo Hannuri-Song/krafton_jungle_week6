@@ -481,7 +481,7 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         PUT(FTRP(bp), PACK(size, 0));
         
         // 병합 후 next_frep의 위치를 bp로 옮기는 역할
-        if (bp <= next_freep && next_freep < NEXT_BLKP(bp)) {
+        if ((char *)bp <= next_freep && next_freep < NEXT_BLKP(bp)) {
             next_freep = bp;
         }
 
@@ -493,7 +493,7 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         PUT(FTRP(bp), PACK(size, 0));
         bp = PREV_BLKP(bp);
 
-        if (bp <= next_freep && next_freep < NEXT_BLKP(bp)){
+        if ((char *)bp <= next_freep && next_freep < NEXT_BLKP(bp)){
             next_freep = bp;
         }
 
@@ -507,7 +507,7 @@ static void *coalesce(void *bp) // 인접한 free block들 병합하기
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
 
-        if (bp <= next_freep && next_freep < NEXT_BLKP(bp)){
+        if ((char *)bp <= next_freep && next_freep < NEXT_BLKP(bp)){
             next_freep = bp;
         }
         return bp;
@@ -605,7 +605,7 @@ static void *find_fit(size_t size) // hybrid_fit (next_fit + first_fit)
 {
     char *bp;
     char *last_searchp;
-    char *first_unchecked; // first_fit에서 순회가 끝난 다음 블록
+    char *first_unchecked = NULL; // first_fit에서 순회가 끝난 다음 블록
     size_t cur_size;
     int block_count = 0; // first_fit에서 순회할 블록의 갯수
 
@@ -619,6 +619,7 @@ static void *find_fit(size_t size) // hybrid_fit (next_fit + first_fit)
         }
         block_count ++;
 
+        // 3개 중에 적절한 블록 못 찾을 시 next-fit으로 전환
         if (block_count == 3){
             first_unchecked = NEXT_BLKP(bp);
             break;
@@ -627,6 +628,8 @@ static void *find_fit(size_t size) // hybrid_fit (next_fit + first_fit)
         bp = NEXT_BLKP(bp);
     }
 
+	// 3개 검사 이전에 에필로그에 도착
+    // 힙 영역 전체 탐색해도 적절한 블록 없었음 의미
     if (block_count < 3){
         return NULL;
     }
@@ -640,10 +643,13 @@ static void *find_fit(size_t size) // hybrid_fit (next_fit + first_fit)
         }
         bp = NEXT_BLKP(bp);
     }
+
+    // 이미 first-fit에서 검사를 다 끝냈다는 뜻 = 맞는 블록이 없다
     if (next_freep < first_unchecked){
         return NULL;
     }
 
+    // next-fit으로 힙영역까지 다 탐색 후 앞 쪽 영역 탐색
     bp = first_unchecked;
     
     while (bp != last_searchp){
